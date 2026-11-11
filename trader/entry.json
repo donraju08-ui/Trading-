@@ -1,0 +1,22 @@
+{
+  "created_by": "trader-entry",
+  "symbol": "SPCX",
+  "setup": "orb",
+  "side": "buy",
+  "date": "2026-11-11",
+  "status": "waiting",
+  "time": null,
+  "bar_start": null,
+  "bar_index": null,
+  "price": null,
+  "level": 145.16,
+  "interval": "5m",
+  "opening_range": {
+    "high": 145.16,
+    "low": 140.64,
+    "minutes": 15
+  },
+  "source": "yahoo",
+  "checked_at": "2026-11-11T14:48:28Z",
+  "reason": "last close $140.96 (9:40 bar), $4.20 under the range high $145.16 (-2.89%)"
+}
