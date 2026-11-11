@@ -1,0 +1,210 @@
+{
+  "created_by": "trader-scanner",
+  "created_at": "2026-11-11T14:39:08Z",
+  "mode": "daily",
+  "as_of": "2026-11-10 close",
+  "universe": 5930,
+  "scanned": 111,
+  "failed": 0,
+  "source": "yahoo",
+  "filters": {
+    "min_price": 5.0,
+    "min_volume": 1000000
+  },
+  "note": "A scan is a list of charts that match a rule, not a list of stocks to buy.",
+  "hits": [
+    {
+      "symbol": "NVDA",
+      "setups": [
+        "oversold"
+      ],
+      "price": 168.89,
+      "close_date": "2026-11-10",
+      "rsi": 23.9,
+      "volume": 49968515
+    },
+    {
+      "symbol": "SNDK",
+      "setups": [
+        "oversold"
+      ],
+      "price": 859.99,
+      "close_date": "2026-11-10",
+      "rsi": 29.4,
+      "volume": 2585335
+    },
+    {
+      "symbol": "AVGO",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 331.98,
+      "close_date": "2026-11-10",
+      "rsi": 49.1,
+      "volume": 4543856
+    },
+    {
+      "symbol": "INTC",
+      "setups": [
+        "oversold"
+      ],
+      "price": 58.13,
+      "close_date": "2026-11-10",
+      "rsi": 28.8,
+      "volume": 17180686
+    },
+    {
+      "symbol": "AMZN",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 270.87,
+      "close_date": "2026-11-10",
+      "rsi": 61.4,
+      "volume": 3087977
+    },
+    {
+      "symbol": "FTNT",
+      "setups": [
+        "oversold",
+        "oversold_bounce"
+      ],
+      "price": 123.57,
+      "close_date": "2026-11-10",
+      "rsi": 27.9,
+      "volume": 1386349
+    },
+    {
+      "symbol": "NOW",
+      "setups": [
+        "oversold"
+      ],
+      "price": 99.61,
+      "close_date": "2026-11-10",
+      "rsi": 27.0,
+      "volume": 1411944
+    },
+    {
+      "symbol": "VZ",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 46.31,
+      "close_date": "2026-11-10",
+      "rsi": 56.1,
+      "volume": 2524220
+    },
+    {
+      "symbol": "KO",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 96.91,
+      "close_date": "2026-11-10",
+      "rsi": 68.0,
+      "volume": 1179942
+    },
+    {
+      "symbol": "PBR",
+      "setups": [
+        "oversold"
+      ],
+      "price": 18.28,
+      "close_date": "2026-11-10",
+      "rsi": 24.6,
+      "volume": 4437335
+    },
+    {
+      "symbol": "BAC",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 50.68,
+      "close_date": "2026-11-10",
+      "rsi": 42.8,
+      "volume": 1182243
+    },
+    {
+      "symbol": "HIMS",
+      "setups": [
+        "oversold"
+      ],
+      "price": 19.13,
+      "close_date": "2026-11-10",
+      "rsi": 29.5,
+      "volume": 2789097
+    },
+    {
+      "symbol": "RIOT",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 18.08,
+      "close_date": "2026-11-10",
+      "rsi": 59.2,
+      "volume": 2602636
+    },
+    {
+      "symbol": "ZETA",
+      "setups": [
+        "breakout_20d",
+        "reclaim_ma20"
+      ],
+      "price": 35.07,
+      "close_date": "2026-11-10",
+      "rsi": 60.9,
+      "volume": 1287239
+    },
+    {
+      "symbol": "TTD",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 15.42,
+      "close_date": "2026-11-10",
+      "rsi": 71.1,
+      "volume": 2459443
+    },
+    {
+      "symbol": "PBR.A",
+      "setups": [
+        "oversold"
+      ],
+      "price": 16.2,
+      "close_date": "2026-11-10",
+      "rsi": 24.5,
+      "volume": 2164605
+    },
+    {
+      "symbol": "MARA",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 7.34,
+      "close_date": "2026-11-10",
+      "rsi": 45.1,
+      "volume": 4337811
+    },
+    {
+      "symbol": "PEPG",
+      "setups": [
+        "breakout_20d",
+        "reclaim_ma20"
+      ],
+      "price": 4.61,
+      "close_date": "2026-11-10",
+      "rsi": 80.3,
+      "volume": 3201160
+    },
+    {
+      "symbol": "IMXI",
+      "setups": [
+        "oversold"
+      ],
+      "price": 6.5,
+      "close_date": "2026-11-10",
+      "rsi": 23.0,
+      "volume": 1843019
+    }
+  ]
+}
