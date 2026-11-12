@@ -562,5 +562,18 @@ def _run(args):
     return 0 if fresh else 1
 
 
+
+# ---------------------------------------------------------------- market (US or ASX)
+# trader-common/market.py points the clock, session, holidays, tickers and words
+# above at the active market: --market us|asx, TRADER_MARKET, or "market" in
+# trader/config.json. For the US it changes nothing.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-common"))
+import market as _market  # noqa: E402
+
+MARKET = _market.install(globals())
+if MARKET["key"] != "us" and __name__ == "__main__":
+    sys.stderr.write("ptr.py: note: Congress's disclosed trades are in US-listed stocks; this report is the same on every market (the ASX setting does not change it)." + "\n")
+
+
 if __name__ == "__main__":
     sys.exit(main())

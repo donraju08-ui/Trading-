@@ -185,7 +185,7 @@ def market_status(now_utc):
     nd = d if (s and local.time() < s[0]) else d + datetime.timedelta(days=1)
     for _ in range(15):
         if session(nd):
-            st["next_open"] = "%s 09:30" % nd.isoformat()
+            st["next_open"] = "%s %s" % (nd.isoformat(), OPEN.strftime("%H:%M"))
             break
         nd += datetime.timedelta(days=1)
     return st
@@ -194,11 +194,13 @@ def market_status(now_utc):
 # ---------------------------------------------------------------- quotes
 
 def stooq_url(sym):
+    if MARKET["key"] != "us":
+        raise AlertError("Stooq is wired for US tickers only here: use --source yahoo on the %s" % MARKET["exchange"])
     return "https://stooq.com/q/l/?s=%s.us&f=sd2t2ohlcv&h&e=csv" % sym.lower().replace(".", "-")
 
 
 def yahoo_url(sym, host=YAHOO_HOSTS[0]):
-    return "https://%s/v8/finance/chart/%s?range=1d&interval=1d" % (host, sym.upper().replace(".", "-"))
+    return "https://%s/v8/finance/chart/%s?range=1d&interval=1d" % (host, _market.yahoo_symbol(sym))
 
 
 def parse_stooq(text, sym):
@@ -314,7 +316,7 @@ def get_quotes(symbols, source="yahoo", offline=None, pause=PAUSE):
     """{SYM: quote} and [errors]. One request per ticker, with a pause between."""
     quotes, errors = {}, []
     for i, sym in enumerate(symbols):
-        sym = sym.upper()
+        sym = _market.canon(sym)
         try:
             if offline:
                 text = _offline_text(offline, source, sym)
@@ -421,7 +423,9 @@ def ring_time(rule, status):
     """The time a time rule rings today, moved 3 hours earlier on an early close if "before_close"."""
     at = _hhmm(rule.get("at"))
     if rule.get("before_close") and status.get("early_close"):
-        at = (datetime.datetime.combine(datetime.date(2000, 1, 1), at) - datetime.timedelta(hours=3)).time()
+        shift = datetime.datetime.combine(datetime.date(2000, 1, 1), CLOSE) - \
+            datetime.datetime.combine(datetime.date(2000, 1, 1), EARLY)
+        at = (datetime.datetime.combine(datetime.date(2000, 1, 1), at) - shift).time()
     return at
 
 
@@ -442,7 +446,7 @@ def evaluate(rules, quotes, status, state, now_utc):
         if typ == "opening_bell":
             if status["open"] and not _rang_today(rung.get(rid), today):
                 rings.append({"id": rid, "symbol": "", "message": "Opening bell: the NYSE is open (%s New York)%s."
-                              % (status["now_new_york"], (", early close at 1:00 p.m. today, "
+                              % (status["now_new_york"], (", early close at %s today, " % EARLY.strftime("%H:%M")
                                                           + status["early_close"]) if status.get("early_close") else "")})
                 rung[rid] = stamp
             continue
@@ -454,14 +458,14 @@ def evaluate(rules, quotes, status, state, now_utc):
                                                                  local.strftime("%H:%M"), at.strftime("%H:%M"))
                 msg += (", the market closes at %s." % status["closes"]) if status["open"] else \
                     ", the market has closed."
-                sym = str(r.get("symbol") or "").upper()
+                sym = _market.canon(r.get("symbol") or "")
                 if sym:
                     msg += (" If %s is still open, close it: trader-broker flatten --symbol %s builds the sell "
                             "ticket, then trader-risk and your yes." % (sym, sym))
                 rings.append({"id": rid, "symbol": sym, "message": msg})
                 rung[rid] = stamp
             continue
-        sym = r["symbol"].upper()
+        sym = _market.canon(r["symbol"])
         q = quotes.get(sym)
         if not q:
             continue
@@ -501,7 +505,7 @@ def rules_from_plan(plan, cfg_flat_by=None):
     """trader/plan.json -> a stop alert, a target alert and a flat-by-close time alert, for the plan's day."""
     if not isinstance(plan, dict) or not plan.get("symbol"):
         raise AlertError("the plan has no symbol (run trader-exit first)")
-    sym = str(plan["symbol"]).upper()
+    sym = _market.canon(plan["symbol"])
     out = []
     for key, typ, word in (("stop", "stop", "plan stop"), ("target", "target", "plan target")):
         v = plan.get(key)
@@ -527,10 +531,10 @@ def holdings(a):
     syms = []
     pf = _read(a.portfolio, {})
     for p in pf.get("positions", []) if isinstance(pf, dict) else []:
-        syms.append(str(p.get("ticker") or p.get("symbol") or "").upper())
+        syms.append(_market.canon(p.get("ticker") or p.get("symbol") or ""))
     plan = _read(a.plan, {})
     if isinstance(plan, dict) and plan.get("symbol"):
-        syms.append(str(plan["symbol"]).upper())
+        syms.append(_market.canon(plan["symbol"]))
     return [s for s in syms if s]
 
 
@@ -560,7 +564,7 @@ def cmd_clock(a):
 
 
 def cmd_quote(a):
-    syms = _dedupe([s.upper() for s in a.symbols] + (holdings(a) if a.holdings else []))
+    syms = _dedupe([_market.canon(s) for s in a.symbols] + (holdings(a) if a.holdings else []))
     if not syms:
         raise AlertError("which tickers? alerts.py quote TSLA KO, or --holdings")
     now = parse_now(a.now)
@@ -593,7 +597,7 @@ def cmd_check(a):
     now = parse_now(a.now)
     status = market_status(now)
     watched = [r for r in rules if active(r, status["date"])]
-    syms = _dedupe([str(r.get("symbol", "")).upper() for r in watched if r.get("type") not in NO_QUOTE])
+    syms = _dedupe([_market.canon(r.get("symbol", "")) for r in watched if r.get("type") not in NO_QUOTE])
     quotes, errors = (get_quotes(syms, a.source, a.offline) if syms else ({}, []))
     state = _read(a.state, {})
     rings, state = evaluate(rules, quotes, status, state, now)
@@ -652,13 +656,13 @@ def cmd_add(a):
         rule = {"id": a.id or ("time-%s" % a.at.replace(":", "")), "type": "time", "at": a.at,
                 "label": a.label or "time alert"}
         if a.symbol:
-            rule["symbol"] = a.symbol.upper()
+            rule["symbol"] = _market.canon(a.symbol)
         if a.before_close:
             rule["before_close"] = True
     else:
         if not a.symbol:
             raise AlertError("--symbol is required (or --from-plan, --at, --opening-bell)")
-        sym = a.symbol.upper()
+        sym = _market.canon(a.symbol)
         if a.above is not None:
             rule = {"type": "above", "price": a.above}
         elif a.below is not None:
@@ -781,6 +785,17 @@ def main(argv=None):
     except AlertError as e:
         print("alerts.py: %s" % e, file=sys.stderr)
         return 1
+
+
+
+# ---------------------------------------------------------------- market (US or ASX)
+# trader-common/market.py points the clock, session, holidays, tickers and words
+# above at the active market: --market us|asx, TRADER_MARKET, or "market" in
+# trader/config.json. For the US it changes nothing.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-common"))
+import market as _market  # noqa: E402
+
+MARKET = _market.install(globals())
 
 
 if __name__ == "__main__":

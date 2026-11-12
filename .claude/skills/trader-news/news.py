@@ -133,15 +133,15 @@ def watch_from_files(portfolio="trader/portfolio.json", watchlist="trader/watchl
     for h in wl.get("hits", []):
         sym = h.get("symbol") or h.get("ticker")
         if sym:
-            out[sym.upper()] = h.get("name")
+            out[_market.canon(sym)] = h.get("name")
     pl = load_json(plan) or {}
     if pl.get("symbol"):
-        out.setdefault(pl["symbol"].upper(), pl.get("name"))
+        out.setdefault(_market.canon(pl["symbol"]), pl.get("name"))
     pf = load_json(portfolio) or {}
     for p in pf.get("positions", []):
         sym = p.get("ticker") or p.get("symbol")
         if sym:
-            out[sym.upper()] = p.get("name") or out.get(sym.upper())
+            out[_market.canon(sym)] = p.get("name") or out.get(_market.canon(sym))
     return out
 
 
@@ -500,7 +500,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     if args.tickers:
-        watch = {t.upper(): None for t in args.tickers}
+        watch = {_market.canon(t): None for t in args.tickers}
         known = watch_from_files(args.portfolio, args.watchlist, args.plan)
         watch.update({t: known[t] for t in watch if known.get(t)})
     else:
@@ -514,6 +514,11 @@ def main(argv=None):
     errors = []
     ua = sec_user_agent(args.user_agent, args.config)
     sec = not args.no_sec
+    if sec and MARKET["filings"] != "sec":
+        errors.append("SEC filings are for US companies; %s company announcements are on asx.com.au "
+                      "(Markets > Announcements) and have no free feed this tool can read: open them there "
+                      "before trading on a headline" % MARKET["exchange"])
+        sec = False
     if sec and not ua and not args.offline:
         errors.append("SEC filings skipped: set sec_user_agent in trader/config.json or "
                       "SEC_USER_AGENT (\"Your Name you@example.com\") to include them")
@@ -540,6 +545,18 @@ def main(argv=None):
             json.dump(state, fh, indent=2)
             fh.write("\n")
     return 0 if any(i["new"] for i in shown) else 1
+
+
+
+# ---------------------------------------------------------------- market (US or ASX)
+# trader-common/market.py points the clock, session, holidays, tickers and words
+# above at the active market: --market us|asx, TRADER_MARKET, or "market" in
+# trader/config.json. For the US it changes nothing.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-common"))
+import market as _market  # noqa: E402
+
+MARKET = _market.install(globals())
+YAHOO = YAHOO.replace("region=US&lang=en-US", "region=%s&lang=%s" % (MARKET["news_region"], MARKET["news_lang"]))
 
 
 if __name__ == "__main__":

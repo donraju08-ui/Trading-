@@ -234,7 +234,7 @@ def load_prices(path):
     out = {}
     for t, p in prices.items():
         try:
-            out[str(t).upper()] = float(p)
+            out[_market.canon(t)] = float(p)
         except (TypeError, ValueError):
             continue
     return out
@@ -313,7 +313,7 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
     c.update(cfg or {})
     if not isinstance(plan, dict):
         raise SizeError("the plan is not a JSON object")
-    sym = str(plan.get("symbol") or "").strip().upper()
+    sym = _market.canon(str(plan.get("symbol") or "").strip())
     if not sym:
         raise SizeError("the plan has no symbol (run trader-exit)")
     side = str(plan.get("side") or "buy").strip().lower()
@@ -327,7 +327,7 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
         if v is None or v <= 0:
             raise SizeError("the plan needs a positive %s (run trader-exit); a bracket order needs entry, "
                             "stop and target" % name)
-    blocked = {str(b).upper() for b in (c.get("blocked") or [])}
+    blocked = {_market.canon(b) for b in (c.get("blocked") or [])}
     if sym in blocked:
         raise SizeError("%s is on your blocked list" % sym)
 
@@ -875,6 +875,17 @@ def main(argv=None):
     except SizeError as e:
         print("size.py: %s" % e, file=sys.stderr)
         return 1
+
+
+
+# ---------------------------------------------------------------- market (US or ASX)
+# trader-common/market.py points the clock, session, holidays, tickers and words
+# above at the active market: --market us|asx, TRADER_MARKET, or "market" in
+# trader/config.json. For the US it changes nothing.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-common"))
+import market as _market  # noqa: E402
+
+MARKET = _market.install(globals())
 
 
 if __name__ == "__main__":

@@ -220,7 +220,7 @@ def next_open(d):
     nd = d + datetime.timedelta(days=1)
     for _ in range(15):
         if session(nd):
-            return "%s 09:30" % nd.isoformat()
+            return "%s %s" % (nd.isoformat(), hm(OPEN))
         nd += datetime.timedelta(days=1)
     return None
 
@@ -475,7 +475,7 @@ def evaluate(chart, now_utc, setup="orb", or_minutes=15, interval="5m", level=No
     res["bars_closed"] = len(bars)
 
     if local < open_dt:
-        res.update(phase="pre-open", reason="the NYSE opens at 9:30%s" % (
+        res.update(phase="pre-open", reason="the NYSE opens at %s%s" % (short(OPEN),
             " and the %d-minute range is set at %s" % (or_minutes, short(or_end)) if setup == "orb" else ""))
         return res
 
@@ -534,7 +534,7 @@ def evaluate(chart, now_utc, setup="orb", or_minutes=15, interval="5m", level=No
     if local >= cutoff and not (pending and pending["end"] <= cutoff):
         res.update(status="expired", phase="after-close" if local >= close_dt else "after-cutoff",
                    reason="no %s by %s, the last time for a new entry%s" % (
-                       what, short(cutoff), " (1:00 p.m. early close today)" if early else ""))
+                       what, short(cutoff), " (%s early close today)" % ampm(EARLY) if early else ""))
         return res
     res["phase"] = "open"
     if last["c"] > lvl and last in thin:
@@ -640,7 +640,7 @@ def describe(res):
         if res.get("next_open"):
             out.append("Next open: %s New York." % res["next_open"])
     if res.get("early_close"):
-        out.append("Early close today at 1:00 p.m. (%s): no new entries after %s." % (
+        out.append(("Early close today at " + ampm(EARLY) + " (%s): no new entries after %s.") % (
             res["early_close"], res["no_entries_after"]))
     if not res.get("calendar_known"):
         out.append("Holiday list covers %s only: check nyse.com for this date." % " and ".join(map(str, CALENDAR_YEARS)))
@@ -954,6 +954,17 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("entry.py: stopped.", file=sys.stderr)
         return 1
+
+
+
+# ---------------------------------------------------------------- market (US or ASX)
+# trader-common/market.py points the clock, session, holidays, tickers and words
+# above at the active market: --market us|asx, TRADER_MARKET, or "market" in
+# trader/config.json. For the US it changes nothing.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-common"))
+import market as _market  # noqa: E402
+
+MARKET = _market.install(globals())
 
 
 if __name__ == "__main__":

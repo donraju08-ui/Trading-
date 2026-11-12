@@ -45,6 +45,10 @@ python3 "${CLAUDE_SKILL_DIR}/ticket.py" log
 is a real yes for that order, builds the flatten ticket, and keeps the log in
 `trader/state/broker.json`. `--now "2026-10-19 10:15"` pins the clock (New York time).
 
+
+## Markets (US or ASX)
+
+This skill runs on the active market: `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`), or `--market asx` on one command. On the ASX every time is Sydney time, the session is 10:00 to 16:00 with ASX holidays, tickers are filed as `BHP.AX` and prices print as A$. On the ASX the broker is Interactive Brokers (contract on exchange ASX, currency AUD); Alpaca is refused because it does not trade ASX shares. See `trader-common/README.md`.
 ## What it reads and writes
 
 | file | what |

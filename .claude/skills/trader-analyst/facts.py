@@ -544,5 +544,19 @@ def main(argv=None):
     return 0 if results and not failed else (1 if results else 2)
 
 
+
+# ---------------------------------------------------------------- market (US or ASX)
+# trader-common/market.py points the clock, session, holidays, tickers and words
+# above at the active market: --market us|asx, TRADER_MARKET, or "market" in
+# trader/config.json. For the US it changes nothing.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-common"))
+import market as _market  # noqa: E402
+
+MARKET = _market.install(globals())
+if MARKET["key"] != "us" and __name__ == "__main__":
+    sys.stderr.write('facts.py: the Earnings Analyst reads SEC EDGAR, which covers US-listed companies only. ASX companies report to the ASX (half-year and full-year results, quarterly activity reports): read them on asx.com.au under Markets > Announcements, or paste the results release here. Run with --market us for a US company.' + "\n")
+    sys.exit(2)
+
+
 if __name__ == "__main__":
     sys.exit(main())

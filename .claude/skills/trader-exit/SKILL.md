@@ -38,6 +38,10 @@ Other flags: `--flat-by 15:55`, `--json`, `--now "2026-10-19 10:15"` (New
 York time), `--entry PRICE` with a waiting entry.json to plan ahead, `--setup
 level`, `--offline FILE` (a saved Yahoo chart JSON for an ATR stop).
 
+
+## Markets (US or ASX)
+
+This skill runs on the active market: `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`), or `--market asx` on one command. On the ASX every time is Sydney time, the session is 10:00 to 16:00 with ASX holidays, tickers are filed as `BHP.AX` and prices print as A$. See `trader-common/README.md`.
 ## What it reads and writes
 
 | file | what |

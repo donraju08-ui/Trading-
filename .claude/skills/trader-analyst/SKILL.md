@@ -32,6 +32,10 @@ It needs the SEC User-Agent (`sec_user_agent` in `trader/config.json`, or
 `SEC_USER_AGENT`): "Your Name you@example.com" with the user's real name and
 email. It refuses to call SEC without one.
 
+
+## Markets (US or ASX)
+
+This skill runs on the active market: `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`), or `--market asx` on one command. On the ASX every time is Sydney time, the session is 10:00 to 16:00 with ASX holidays, tickers are filed as `BHP.AX` and prices print as A$. The Earnings Analyst reads SEC EDGAR, so it is US only: on the ASX it stops and points to asx.com.au announcements. See `trader-common/README.md`.
 ## What it reads and writes
 
 - Reads `https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json` (every

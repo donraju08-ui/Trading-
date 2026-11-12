@@ -135,6 +135,20 @@ def write_json(path, data):
     os.replace(tmp, path)
 
 
+def market_cfg(cfg):
+    """trader/config.json for the active market. Alpaca trades US stocks only, so on
+    the ASX the broker defaults to Interactive Brokers, and "alpaca" is refused."""
+    sub = cfg.get(MARKET["key"]) if isinstance(cfg.get(MARKET["key"]), dict) else {}
+    cfg = _market.overlay(cfg)
+    if MARKET["key"] != "us":
+        broker = str(sub.get("broker") or "ibkr").lower()   # the top-level broker is the US one
+        if broker == "alpaca":
+            raise TicketError("Alpaca does not trade %s shares: set \"%s\": {\"broker\": \"ibkr\"} in "
+                              "trader/config.json (Interactive Brokers connector)" % (MARKET["exchange"], MARKET["key"]))
+        cfg["broker"] = broker
+    return cfg
+
+
 def rec_day(rec):
     """The trading day a decision belongs to: its "date" (the day it was made under), else the day of "at"."""
     return str(rec.get("date") or str(rec.get("at", ""))[:10])
@@ -285,6 +299,7 @@ def parse_yes(reply, order, batch_symbols=()):
     sym = str(order.get("symbol", "")).upper()
     tokens = set(re.findall(r"[A-Z][A-Z.\-]{0,6}", raw.upper()))
     others = {s.upper() for s in batch_symbols} - {sym}
+    others |= {_market.bare(s) for s in others} - {_market.bare(sym)}   # ASX: "BHP" names BHP.AX
     named = tokens & others
     if named:
         return False, "the reply names %s, but this order is for %s" % (", ".join(sorted(named)), sym)
@@ -365,6 +380,10 @@ def render(order, idx, total, cfg, risk, state, today):
     if broker == "ibkr":
         lines.append("  Claude drafts this with the Interactive Brokers connector. IBKR sends it to your")
         lines.append("  IBKR account, and it only goes to the market after you approve it there.")
+        if MARKET["key"] != "us":
+            lines.append("  Contract: %s, a stock on %s (IBKR exchange ASX, currency %s); prices are in %s."
+                         % (_market.bare(order.get("symbol", "")), MARKET["exchange"], MARKET["currency"],
+                            MARKET["currency"]))
     else:
         lines.append("  Claude will call place_stock_order with exactly:")
         for l in json.dumps(tool_input(order), indent=2).splitlines():
@@ -384,7 +403,10 @@ def ticket_json(order, idx, cfg, risk, state, today):
     loss, stop = max_loss(order)
     return {"index": idx, "ready": ready, "status": label, "plain": plain(order),
             "fingerprint": fingerprint(order), "paper": bool(cfg.get("paper", True)),
-            "broker": cfg.get("broker", "alpaca"), "tool": "place_stock_order",
+            "broker": cfg.get("broker", "alpaca"),
+            "tool": "place_stock_order" if str(cfg.get("broker", "alpaca")).lower() != "ibkr" else "ibkr connector",
+            "market": MARKET["key"], "exchange": MARKET["exchange"], "currency": MARKET["currency"],
+            "contract_symbol": _market.bare(order.get("symbol", "")),
             "tool_input": tool_input(order), "why": order.get("why", ""),
             "bracket": is_bracket(order), "max_loss": loss, "stop": stop}
 
@@ -464,7 +486,7 @@ def _load(a):
     orders = doc.get("orders", doc) if isinstance(doc, dict) else doc
     if not isinstance(orders, list) or not orders:
         raise TicketError("no orders in %s" % a.orders)
-    cfg = read_json(a.config, "config", required=False) or {}
+    cfg = market_cfg(read_json(a.config, "config", required=False) or {})
     risk = read_json(a.risk, "risk check", required=False)
     state = load_state(a.state)
     now, today = _clock(a)
@@ -570,7 +592,7 @@ def cmd_result(a):
 
 
 def cmd_fill(a):
-    cfg = read_json(a.config, "config", required=False) or {}
+    cfg = market_cfg(read_json(a.config, "config", required=False) or {})
     now = parse_now(a.now)
     date = a.date or to_eastern(now).date().isoformat()
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
@@ -584,7 +606,7 @@ def cmd_fill(a):
 
 
 def cmd_flatten(a):
-    cfg = read_json(a.config, "config", required=False) or {}
+    cfg = market_cfg(read_json(a.config, "config", required=False) or {})
     sym = a.symbol.strip().upper()
     now, today = _clock(a)
     source = "the broker, get_open_position"
@@ -714,6 +736,17 @@ def main(argv=None):
     except TicketError as e:
         print("ticket.py: %s" % e, file=sys.stderr)
         return 1
+
+
+
+# ---------------------------------------------------------------- market (US or ASX)
+# trader-common/market.py points the clock, session, holidays, tickers and words
+# above at the active market: --market us|asx, TRADER_MARKET, or "market" in
+# trader/config.json. For the US it changes nothing.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-common"))
+import market as _market  # noqa: E402
+
+MARKET = _market.install(globals())
 
 
 if __name__ == "__main__":

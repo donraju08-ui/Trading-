@@ -37,6 +37,10 @@ python3 "${CLAUDE_SKILL_DIR}/size.py" --weights AAPL=40,KO=60 --config split.jso
 `--now "2026-10-19 10:15"` pins the clock (New York time). A plan for
 another day is refused: make a new one with trader-exit.
 
+
+## Markets (US or ASX)
+
+This skill runs on the active market: `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`), or `--market asx` on one command. On the ASX every time is Sydney time, the session is 10:00 to 16:00 with ASX holidays, tickers are filed as `BHP.AX` and prices print as A$. See `trader-common/README.md`.
 ## What it reads and writes
 
 | file | what |

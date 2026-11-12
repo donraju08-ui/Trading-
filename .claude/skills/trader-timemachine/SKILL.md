@@ -43,6 +43,10 @@ Other flags: `--replays N`, `--seed N` (default 19), `--window N` (default 2
 bars), `--offline FILE` (a saved Yahoo chart JSON, `.json` or `.json.gz`),
 `--now "2026-10-19 10:15"` (New York time) to pin the clock.
 
+
+## Markets (US or ASX)
+
+This skill runs on the active market: `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`), or `--market asx` on one command. On the ASX every time is Sydney time, the session is 10:00 to 16:00 with ASX holidays, tickers are filed as `BHP.AX` and prices print as A$. On the ASX a session is 10:00 to 16:00 (72 bars) and up to 6 missing bars a session are filled flat at the last close, with a note. See `trader-common/README.md`.
 ## What it reads and writes
 
 | file | what |

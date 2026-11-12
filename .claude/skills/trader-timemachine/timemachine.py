@@ -87,6 +87,7 @@ SESSION_BARS = 78    # 9:30 to 16:00 in 5-minute bars
 OPEN_MIN = 9 * 60 + 30
 CLOSE_MIN = 16 * 60
 MIN_SESSIONS = 20
+MAX_GAPS = 0         # missing bars a session may have and still count (filled flat); ASX: 6
 SAMPLE_PATHS = 160
 BAND_PATHS = 2000
 BAND_Q = (0.05, 0.25, 0.5, 0.75, 0.95)
@@ -187,7 +188,7 @@ def clock24(minutes):
 
 def chart_url(sym, host="query2"):
     return "https://%s.finance.yahoo.com/v8/finance/chart/%s?range=60d&interval=5m" % (
-        host, urllib.parse.quote(sym.upper().replace(".", "-")))
+        host, urllib.parse.quote(_market.yahoo_symbol(sym)))
 
 
 def _sleep(seconds):
@@ -325,9 +326,29 @@ def full_sessions(days, before):
         s = days[d]
         if len(s) == SESSION_BARS:
             full.append((d, [s[i] for i in range(SESSION_BARS)]))
+        elif MAX_GAPS and SESSION_BARS - len(s) <= MAX_GAPS and s:
+            full.append((d, fill_gaps(s)))
         else:
             short.append({"date": d, "bars": len(s)})
     return full, short
+
+
+def fill_gaps(s):
+    """A session with a few missing slots (Yahoo's free ASX bars have gaps) ->
+    all SESSION_BARS bars: a missing bar is flat at the last close (the first
+    slot, if missing, at the next bar's open), with no volume, marked filled."""
+    out, prev = [], None
+    first = s[min(s)]
+    for i in range(SESSION_BARS):
+        b = s.get(i)
+        if b is None:
+            px = prev["c"] if prev else first["o"]
+            hh, mm = divmod(OPEN_MIN + 5 * i, 60)
+            b = {"date": first["date"], "slot": i, "start": "%02d:%02d" % (hh, mm),
+                 "o": px, "h": px, "l": px, "c": px, "v": 0, "filled": True}
+        out.append(b)
+        prev = b
+    return out
 
 
 # ---------------------------------------------------------------- the simulation (sim.py)
@@ -686,7 +707,7 @@ def time_machine(text, plan, now_utc, replays=10000, seed=19, window=2, until=No
     result = chart_result(text, sym)
     meta, bars, dropped = parse_bars(result, now_utc)
     msym = str(meta.get("symbol") or "").upper()
-    if msym and msym != sym.replace(".", "-"):
+    if msym and msym != _market.yahoo_symbol(sym):
         raise TMError("the data is for %s but the plan is for %s" % (msym, sym))
     gran = meta.get("dataGranularity")
     if gran and gran != "5m":
@@ -722,6 +743,11 @@ def time_machine(text, plan, now_utc, replays=10000, seed=19, window=2, until=No
                       % (len(sessions), sym, plan["date"], MIN_SESSIONS))
     pool = build_pool(sessions)
     mc = simulate(pool, plan["entry"], plan["stop"], plan["target"], k, last, replays, seed, window, plan["side"])
+    filled = sum(1 for _, bb in sessions for x in bb if x.get("filled"))
+    if filled:
+        warn.append("%d missing 5-minute bar(s) across %d session(s) were filled flat at the last close "
+                    "(Yahoo's free %s bars have gaps)" % (filled, sum(1 for _, bb in sessions
+                                                          if any(x.get("filled") for x in bb)), MARKET["exchange"]))
     mc = dict(mc, until=clock24(until_min), pool_sessions=len(sessions), pool_from=sessions[0][0],
               pool_to=sessions[-1][0],
               band_times=[clock24(OPEN_MIN + 5 * (j + 1)) for j in range(k, last + 1)])
@@ -950,6 +976,23 @@ def main(argv=None):
     except TMError as e:
         print("timemachine.py: %s" % e, file=sys.stderr)
         return 1
+
+
+
+# ---------------------------------------------------------------- market (US or ASX)
+# trader-common/market.py points the clock, session, holidays, tickers and words
+# above at the active market: --market us|asx, TRADER_MARKET, or "market" in
+# trader/config.json. For the US it changes nothing.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-common"))
+import market as _market  # noqa: E402
+
+MARKET = _market.install(globals())
+if MARKET["key"] != "us":
+    OPEN_MIN = MARKET["open"].hour * 60 + MARKET["open"].minute
+    CLOSE_MIN = MARKET["close"].hour * 60 + MARKET["close"].minute
+    EARLY_MIN = MARKET["early"].hour * 60 + MARKET["early"].minute
+    SESSION_BARS = (CLOSE_MIN - OPEN_MIN) // 5
+    MAX_GAPS = 6
 
 
 if __name__ == "__main__":

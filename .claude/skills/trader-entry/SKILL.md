@@ -41,6 +41,10 @@ saved Yahoo chart JSON, `.json` or `.json.gz`, or a folder of
 `watch` with `--now` or `--offline` runs on a simulated clock and replays the
 day bar by bar without waiting.
 
+
+## Markets (US or ASX)
+
+This skill runs on the active market: `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`), or `--market asx` on one command. On the ASX every time is Sydney time, the session is 10:00 to 16:00 with ASX holidays, tickers are filed as `BHP.AX` and prices print as A$. See `trader-common/README.md`.
 ## What it reads and writes
 
 | file | what |

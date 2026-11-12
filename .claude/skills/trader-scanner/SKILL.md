@@ -55,6 +55,7 @@ reason is one plain line).
 
 ## The Australian market (ASX)
 
+Switch every skill at once with `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`); see `trader-common/README.md`.
 Add `--market asx` to any command, or put `"market": "asx"` in
 `trader/config.json` to make it the default (`--market us` switches back).
 

@@ -29,6 +29,10 @@ python3 "${CLAUDE_SKILL_DIR}/news.py" --tickers TSLA NVDA --hours 12
 python3 "${CLAUDE_SKILL_DIR}/news.py" --no-sec --json
 ```
 
+
+## Markets (US or ASX)
+
+This skill runs on the active market: `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`), or `--market asx` on one command. On the ASX every time is Sydney time, the session is 10:00 to 16:00 with ASX holidays, tickers are filed as `BHP.AX` and prices print as A$. On the ASX headlines come from Yahoo's AU feed; SEC filings are skipped and ASX announcements must be read on asx.com.au. See `trader-common/README.md`.
 ## What it reads and writes
 
 | file / feed | what |

@@ -35,6 +35,10 @@ python3 "${CLAUDE_SKILL_DIR}/check.py" --no-write                # look without 
 python3 "${CLAUDE_SKILL_DIR}/check.py" --now "2026-10-19 10:15"  # pin the clock (New York time)
 ```
 
+
+## Markets (US or ASX)
+
+This skill runs on the active market: `python3 "/workspace/Trading-/.claude/skills/trader-common/market.py" use asx` (or `use us`), or `--market asx` on one command. On the ASX every time is Sydney time, the session is 10:00 to 16:00 with ASX holidays, tickers are filed as `BHP.AX` and prices print as A$. See `trader-common/README.md`.
 ## What it reads and writes
 
 | file | what |

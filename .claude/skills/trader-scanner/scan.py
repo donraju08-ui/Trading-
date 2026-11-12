@@ -1313,7 +1313,7 @@ def main(argv=None):
         return 1
     try:
         cfg = read_config(getattr(a, "config", None) or "trader/config.json")
-        set_market(a.market or str(cfg.get("market") or "us").lower())
+        set_market(a.market or os.environ.get("TRADER_MARKET") or str(cfg.get("market") or "us").lower())
         if a.cmd == "daily":
             a.min_price = M["daily_min_price"] if a.min_price is None else a.min_price
             a.min_volume = M["daily_min_volume"] if a.min_volume is None else a.min_volume
