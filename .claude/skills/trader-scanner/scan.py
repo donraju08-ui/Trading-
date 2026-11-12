@@ -8,6 +8,20 @@
     python3 scan.py orb --at 10:15 --or-minutes 15    # cut the clock at 10:15 AM ET
     python3 scan.py orb --offline wall5m.json.gz --now "2026-10-19 10:15" --min-price 0
 
+    python3 scan.py universe --market asx              # ASX listed companies -> trader/universe-asx.txt
+    python3 scan.py daily --market asx                 # ASX, Sydney time, .AX tickers
+    python3 scan.py orb --market asx                   # after 10:20 AM Sydney time
+
+--market asx (or "market": "asx" in trader/config.json) switches every rule
+to the ASX: Sydney time (AEST/AEDT), 10:00 AM to 4:00 PM, ASX holidays and the
+2:00 PM early closes, today's daily bar final at 4:15 PM (after the closing
+auction), tickers as bare ASX codes (BHP) fetched from Yahoo as BHP.AX and
+written to watchlist.json as BHP.AX, prices in A$, liquidity floors A$1 and
+500,000 shares, and up to 8 missing 5-minute bars a chart (Yahoo's free ASX
+bars have gaps; the opening range may miss one). The universe comes from
+ASX's ASXListedCompanies.csv; asx-starter.txt next to this file is a small
+hand-picked list for when that download is not reachable.
+
 universe  Downloads Nasdaq Trader's symbol directories (nasdaqlisted.txt and
           otherlisted.txt) and keeps US-listed common stocks, ordinary shares
           and ADRs. The rule, in order:
@@ -79,6 +93,7 @@ import time
 import urllib.error
 import urllib.request
 
+STARTER_ASX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "asx-starter.txt")
 UA = "Mozilla/5.0 (compatible; day-trader-skill/2.0; +https://github.com/Jakeschincariol/day-trader-skill)"
 YAHOO_HOSTS = ("https://query2.finance.yahoo.com", "https://query1.finance.yahoo.com")
 NASDAQ_FILES = ("nasdaqlisted.txt", "otherlisted.txt")
@@ -125,6 +140,37 @@ OPEN = datetime.time(9, 30)
 CLOSE = datetime.time(16, 0)
 EARLY = datetime.time(13, 0)
 
+# ASX (Australian Securities Exchange), Sydney time. Holidays from the ASX Trade
+# calendar (asx.com.au, read 2026-11-12); the ASX follows NSW public holidays.
+# Normal trading 10:00 to 4:00 PM (the opening auction staggers the open from
+# 10:00 to about 10:09 by ticker), then the closing single price auction at
+# about 4:10 PM. On the two early closes normal trading ends at 2:00 PM and the
+# closing auction runs at about 2:10 PM.
+ASX_HOLIDAYS = {
+    "2026-01-01": "New Year's Day",
+    "2026-01-26": "Australia Day",
+    "2026-04-03": "Good Friday",
+    "2026-04-06": "Easter Monday",
+    "2026-06-08": "King's Birthday",
+    "2026-12-25": "Christmas Day",
+    "2026-12-28": "Boxing Day (observed)",
+    "2027-01-01": "New Year's Day",
+    "2027-01-26": "Australia Day",
+    "2027-03-26": "Good Friday",
+    "2027-03-29": "Easter Monday",
+    "2027-06-14": "King's Birthday",
+    "2027-12-27": "Christmas Day (observed)",
+    "2027-12-28": "Boxing Day (observed)",
+}
+ASX_EARLY_CLOSE = {  # normal trading ends 2:00 p.m. Sydney time
+    "2026-12-24": "Christmas Eve",
+    "2026-12-31": "New Year's Eve",
+    "2027-12-24": "Christmas Eve",
+    "2027-12-31": "New Year's Eve",
+}
+ASX_LIST_URL = "https://www.asx.com.au/asx/research/ASXListedCompanies.csv"
+ASX_CODE = re.compile(r"^[A-Z0-9]{3}$")
+
 SETUPS = [
     ("breakout_20d", "20-day closing-high breakout"),
     ("bull_flag", "bull flag"),
@@ -158,32 +204,80 @@ def eastern_offset(utc):
     return -4 if start <= naive < end else -5
 
 
+def sydney_offset(utc):
+    """Hours from UTC for Sydney: +11 in daylight time (AEDT), +10 otherwise (AEST).
+    DST ends at 3:00 a.m. AEDT on the first Sunday of April and starts at 2:00 a.m.
+    AEST on the first Sunday of October: both are 16:00 UTC on the Saturday before."""
+    y = utc.year
+    end = datetime.datetime.combine(_nth_sunday(y, 4, 1) - datetime.timedelta(days=1), datetime.time(16, 0))
+    start = datetime.datetime.combine(_nth_sunday(y, 10, 1) - datetime.timedelta(days=1), datetime.time(16, 0))
+    naive = utc.replace(tzinfo=None)
+    return 10 if end <= naive < start else 11
+
+
+# The market every function below works in. set_market() swaps it; "us" is the default.
+MARKETS = {
+    "us": {"key": "us", "name": "NYSE / Nasdaq", "exchange": "NYSE", "tz": "ET", "city": "New York",
+           "offset": eastern_offset, "offsets": (-4, -5),
+           "open": OPEN, "close": CLOSE, "early": EARLY,
+           "settle": CLOSE, "settle_early": EARLY,   # when today's daily bar is final
+           "holidays": NYSE_HOLIDAYS, "early_close": NYSE_EARLY_CLOSE,
+           "suffix": "", "cur": "$", "universe": "trader/universe.txt",
+           "daily_min_price": 5.0, "daily_min_volume": 1000000, "orb_min_price": 5.0,
+           "max_missing": 0},
+    "asx": {"key": "asx", "name": "ASX", "exchange": "ASX", "tz": "Sydney", "city": "Sydney",
+            "offset": sydney_offset, "offsets": (11, 10),
+            "open": datetime.time(10, 0), "close": datetime.time(16, 0), "early": datetime.time(14, 0),
+            "settle": datetime.time(16, 15), "settle_early": datetime.time(14, 15),  # after the closing auction
+            "holidays": ASX_HOLIDAYS, "early_close": ASX_EARLY_CLOSE,
+            "suffix": ".AX", "cur": "A$", "universe": "trader/universe-asx.txt",
+            "daily_min_price": 1.0, "daily_min_volume": 500000, "orb_min_price": 1.0,
+            # Yahoo's free ASX 5-minute bars have gaps even on busy names (PLS was
+            # missing 7 of 38 bars on 2026-11-12), so a gap is not read as a halt.
+            "max_missing": 8},
+}
+M = MARKETS["us"]
+
+
+def set_market(key):
+    global M
+    if key not in MARKETS:
+        raise ScanError("--market wants one of: %s" % ", ".join(sorted(MARKETS)))
+    M = MARKETS[key]
+    return M
+
+
 def to_eastern(utc):
-    return utc.replace(tzinfo=None) + datetime.timedelta(hours=eastern_offset(utc))
+    """naive UTC -> naive local time of the current market (New York for us, Sydney for asx)."""
+    return utc.replace(tzinfo=None) + datetime.timedelta(hours=M["offset"](utc))
 
 
 def eastern_to_utc(local):
-    for off in (-4, -5):
+    for off in M["offsets"]:
         utc = local - datetime.timedelta(hours=off)
-        if eastern_offset(utc) == off:
+        if M["offset"](utc) == off:
             return utc
-    return local + datetime.timedelta(hours=5)
+    return local - datetime.timedelta(hours=M["offsets"][-1])
 
 
 def ts_to_eastern(ts):
-    """Unix seconds -> naive New York time. Never uses the machine's time zone."""
+    """Unix seconds -> naive market-local time. Never uses the machine's time zone."""
     return to_eastern(datetime.datetime(1970, 1, 1) + datetime.timedelta(seconds=int(ts)))
 
 
+# market-neutral names for the same three functions
+to_local, local_to_utc, ts_to_local = to_eastern, eastern_to_utc, ts_to_eastern
+
+
 def parse_now(text):
-    """ISO time -> naive UTC. A time without an offset is taken as New York time."""
+    """ISO time -> naive UTC. A time without an offset is taken as the market's local time."""
     if not text:
         return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0, tzinfo=None)
     t = text.strip().replace("Z", "+00:00")
     try:
         dt = datetime.datetime.fromisoformat(t)
     except ValueError:
-        raise ScanError('--now wants a time like "2026-10-19 10:15" (New York) or ...Z (UTC)')
+        raise ScanError('--now wants a time like "2026-10-19 10:15" (%s time) or ...Z (UTC)' % M["city"])
     if dt.tzinfo is None:
         return eastern_to_utc(dt)
     return (dt - dt.utcoffset()).replace(tzinfo=None)
@@ -192,26 +286,31 @@ def parse_now(text):
 def parse_hhmm(text, flag="--at"):
     m = re.match(r"^\s*(\d{1,2}):(\d{2})\s*$", text or "")
     if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
-        raise ScanError("%s wants a New York time like 10:15" % flag)
+        raise ScanError("%s wants a %s time like 10:15" % (flag, M["city"]))
     return datetime.time(int(m.group(1)), int(m.group(2)))
 
 
 def trading_day(d):
-    """(is_trading_day, reason). Weekends and the NYSE holiday list."""
+    """(is_trading_day, reason). Weekends and the market's holiday list."""
     if d.weekday() >= 5:
         return False, "weekend"
-    name = NYSE_HOLIDAYS.get(d.isoformat())
+    name = M["holidays"].get(d.isoformat())
     if name:
-        return False, "NYSE holiday: " + name
+        return False, "%s holiday: %s" % (M["exchange"], name)
     return True, ""
 
 
 def session(d):
-    """(open_time, close_time) in New York time, or None if closed all day."""
+    """(open_time, close_time) in market-local time, or None if closed all day."""
     ok, _ = trading_day(d)
     if not ok:
         return None
-    return OPEN, (EARLY if d.isoformat() in NYSE_EARLY_CLOSE else CLOSE)
+    return M["open"], (M["early"] if d.isoformat() in M["early_close"] else M["close"])
+
+
+def settle_time(d):
+    """When the day's daily bar is final (after the closing auction on the ASX)."""
+    return M["settle_early"] if d.isoformat() in M["early_close"] else M["settle"]
 
 
 def clock_label(t):
@@ -268,7 +367,24 @@ def yahoo_get(path):
 
 
 def to_yahoo(sym):
-    return sym.upper().replace(".", "-")
+    """Our symbol -> Yahoo's. US: BRK.B -> BRK-B. ASX: BHP -> BHP.AX."""
+    sym = sym.upper()
+    if M["suffix"]:
+        return strip_suffix(sym) + M["suffix"]
+    return sym.replace(".", "-")
+
+
+def strip_suffix(sym):
+    """ASX: BHP.AX -> BHP (our symbols are the bare ASX code)."""
+    sym = sym.upper()
+    if M["suffix"] and sym.endswith(M["suffix"]):
+        return sym[:-len(M["suffix"])]
+    return sym
+
+
+def display_symbol(sym):
+    """The symbol written to watchlist.json: what Yahoo and the other skills look up."""
+    return to_yahoo(sym) if M["suffix"] else sym
 
 
 def spark_path(symbols, rng, interval):
@@ -309,7 +425,8 @@ def parse_spark(text_or_doc, wanted=None):
         if not resp:
             continue
         ysym = item.get("symbol") or (resp[0].get("meta") or {}).get("symbol") or ""
-        sym = (wanted or {}).get(ysym.upper(), ysym.upper().replace("-", "."))
+        sym = (wanted or {}).get(ysym.upper()) or (strip_suffix(ysym) if M["suffix"]
+                                                     else ysym.upper().replace("-", "."))
         out[sym] = series_from_result(resp[0])
     if err and not out:
         raise ScanError("Yahoo spark: %s" % (err.get("description") or err.get("code") or err))
@@ -356,7 +473,7 @@ def _absorb(doc, name_hint, data, errors):
                 sym = (doc["chart"].get("result") or [{}])[0]["meta"]["symbol"]
             except (AttributeError, KeyError, TypeError, IndexError):
                 raise ScanError("an offline v8 chart without a symbol: name the file <TICKER>.json")
-        sym = sym.upper().replace("-", ".")
+        sym = strip_suffix(sym) if M["suffix"] else sym.upper().replace("-", ".")
         try:
             data[sym] = parse_chart(doc, sym)
         except ScanError as e:
@@ -480,6 +597,37 @@ def build_universe(texts):
     return sorted(kept.items()), counts, created
 
 
+def build_asx_universe(text):
+    """ASX's ASXListedCompanies.csv -> (kept [(CODE, name)], counts, as_at).
+    The file is a title line ("ASX listed companies as at ..."), a blank line, then
+    a header "Company name,ASX code,GICS industry group". It lists listed entities
+    (companies and trusts), not ETFs. A row is kept when its code is three letters
+    or digits; the liquidity filter in daily and orb does the rest."""
+    import csv
+    import io
+    lines = text.replace("\r", "").split("\n")
+    as_at = None
+    m = re.search(r"as at (.+)$", lines[0].strip()) if lines else None
+    if m:
+        as_at = m.group(1).strip()
+    start = next((i for i, ln in enumerate(lines) if "ASX code" in ln), None)
+    if start is None:
+        raise ScanError("not ASX's listed companies file (no 'ASX code' header)")
+    kept, counts = {}, {"rows": 0}
+    for row in csv.DictReader(io.StringIO("\n".join(lines[start:]))):
+        code = (row.get("ASX code") or "").strip().upper()
+        name = " ".join((row.get("Company name") or "").split())
+        if not code and not name:
+            continue
+        counts["rows"] += 1
+        if not ASX_CODE.match(code):
+            counts["not a plain ASX code"] = counts.get("not a plain ASX code", 0) + 1
+            continue
+        counts["keep"] = counts.get("keep", 0) + 1
+        kept[code] = name
+    return sorted(kept.items()), counts, as_at
+
+
 # ---------------------------------------------------------------- daily setups
 
 def rsi(closes, n=14):
@@ -501,7 +649,7 @@ def daily_closes(series, now_utc):
     now = to_eastern(now_utc)
     today = now.date()
     s = session(today)
-    today_done = s is None or now.time() >= s[1]
+    today_done = s is None or now.time() >= settle_time(today)
     out = {}
     for ts, c in zip(series["t"], series["c"]):
         if c is None:
@@ -578,14 +726,14 @@ def scan_daily(data, symbols, now_utc, min_price, min_volume):
 # ---------------------------------------------------------------- opening-range breakout
 
 def slot(day, k):
-    return datetime.datetime.combine(day, OPEN) + datetime.timedelta(minutes=BAR_MIN * k)
+    return datetime.datetime.combine(day, M["open"]) + datetime.timedelta(minutes=BAR_MIN * k)
 
 
 def session_bars(series, day, cutoff):
-    """5-minute bars of `day` that are complete at `cutoff` (naive New York time),
+    """5-minute bars of `day` that are complete at `cutoff` (naive market-local time),
     on the grid, with a close. Sorted, one per slot."""
     s = session(day)
-    close_t = s[1] if s else CLOSE
+    close_t = s[1] if s else M["close"]
     out = {}
     hs, ls = series.get("h"), series.get("l")
     for i, ts in enumerate(series["t"]):
@@ -595,8 +743,8 @@ def session_bars(series, day, cutoff):
         et = ts_to_eastern(ts)
         if et.date() != day or et.second or et.minute % BAR_MIN:
             continue  # another day, or the live tick off the grid
-        if et.time() < OPEN or et.time() >= close_t:
-            continue  # pre-market, after hours, the 4:00 PM closing print
+        if et.time() < M["open"] or et.time() >= close_t:
+            continue  # pre-market, after hours, the closing print / closing auction
         if et + datetime.timedelta(minutes=BAR_MIN) > cutoff:
             continue  # still in progress at the cutoff
         v = series.get("v")
@@ -607,36 +755,59 @@ def session_bars(series, day, cutoff):
     return [out[k] for k in sorted(out)]
 
 
-def usable(bars, day, cutoff, n_range):
-    """Every slot from 9:30 to the cutoff is there, and at least the range."""
+def usable(bars, day, cutoff, n_range, max_missing=None):
+    """Every slot from the open to the cutoff is there, and at least the range.
+    With max_missing > 0 (the ASX default: Yahoo's free ASX bars have gaps), up to
+    that many slots may be missing, but at most one of the opening-range slots."""
+    if max_missing is None:
+        max_missing = M["max_missing"]
     want = int((cutoff - slot(day, 0)).total_seconds() // (BAR_MIN * 60))
     s = session(day)
     if s:
         want = min(want, int((datetime.datetime.combine(day, s[1]) - slot(day, 0)).total_seconds()
                              // (BAR_MIN * 60)))
-    if want < n_range or len(bars) != want:
+    if want <= n_range:
         return False
-    return all(b["start"] == slot(day, k) for k, b in enumerate(bars))
+    grid = {slot(day, k) for k in range(want)}
+    starts = [b["start"] for b in bars]
+    if len(set(starts)) != len(starts) or not set(starts) <= grid:
+        return False
+    if not max_missing:
+        return len(bars) == want
+    in_range = sum(1 for t in starts if t < slot(day, n_range))
+    after = len(bars) - in_range
+    return want - len(bars) <= max_missing and in_range >= max(1, n_range - 1) and after >= 1
+
+
+def split_range(bars, n_range):
+    """-> (range bars, bars after the range), by time (a gap does not shift the split)."""
+    if not bars:
+        return [], []
+    end = slot(bars[0]["start"].date(), n_range)
+    return [b for b in bars if b["start"] < end], [b for b in bars if b["start"] >= end]
 
 
 def orb_candidate(bars, n_range):
     """Stage 1, closes only: some completed bar after the range closed at or above
     the highest close of the range. Necessary for a breakout (range high >= any range close)."""
-    top = max(b["c"] for b in bars[:n_range])
-    return any(b["c"] >= top for b in bars[n_range:])
+    rng, rest = split_range(bars, n_range)
+    if not rng:
+        return False
+    top = max(b["c"] for b in rng)
+    return any(b["c"] >= top for b in rest)
 
 
 def orb_hit(bars, n_range):
     """Stage 2, real highs and lows: the first completed bar to CLOSE above the range high."""
-    rng = bars[:n_range]
-    if any(b["h"] is None or b["l"] is None for b in rng):
+    rng, rest = split_range(bars, n_range)
+    if not rng or any(b["h"] is None or b["l"] is None for b in rng):
         return None
     oh = max(b["h"] for b in rng)
     ol = min(b["l"] for b in rng)
-    for k in range(n_range, len(bars)):
-        b = bars[k]
+    for b in rest:
         if b["c"] > oh:
             closes_at = b["start"] + datetime.timedelta(minutes=BAR_MIN)
+            k = int((b["start"] - slot(b["start"].date(), 0)).total_seconds() // (BAR_MIN * 60))
             return {"price": round(b["c"], 2), "at": clock_label(closes_at),
                     "bar_start": b["start"].strftime("%H:%M"), "bar_index": k,
                     "or_high": round(oh, 2), "or_low": round(ol, 2),
@@ -645,7 +816,7 @@ def orb_hit(bars, n_range):
 
 
 def orb_window(now_utc, at, or_minutes, until, explicit_day=None):
-    """-> (day, cutoff naive ET) or raise ScanError with the plain message."""
+    """-> (day, cutoff naive market-local time) or raise ScanError with the plain message."""
     now = to_eastern(now_utc)
     day = explicit_day or now.date()
     if or_minutes < BAR_MIN or or_minutes % BAR_MIN or or_minutes > 120:
@@ -661,25 +832,27 @@ def orb_window(now_utc, at, or_minutes, until, explicit_day=None):
     if at is not None:
         cutoff = datetime.datetime.combine(day, at)
         if explicit_day is None and cutoff > now + datetime.timedelta(seconds=59):
-            raise ScanError("--at %s is later than now (%s ET)." % (at.strftime("%H:%M"), clock_label(now)))
+            raise ScanError("--at %s is later than now (%s %s)." % (at.strftime("%H:%M"), clock_label(now), M["tz"]))
         if cutoff > close_dt:
             raise ScanError("--at %s is after the %s close on %s." % (at.strftime("%H:%M"), clock_label(close_dt),
                                                                        day_label(day)))
     else:
         cutoff = now.replace(second=0, microsecond=0)
         if cutoff >= close_dt:
-            raise ScanError("The market closed at %s ET on %s. Replay the session with --at 10:15."
-                            % (clock_label(close_dt), day_label(day)))
+            raise ScanError("The market closed at %s %s on %s. Replay the session with --at %s."
+                            % (clock_label(close_dt), M["tz"], day_label(day),
+                               (slot(day, (or_minutes + 30) // BAR_MIN)).strftime("%H:%M")))
     if cutoff < first_close:
-        raise ScanError("It is %s ET: the %d-minute opening range runs 9:30 to %s and the first bar after it "
+        raise ScanError("It is %s %s: the %d-minute opening range runs %s to %s and the first bar after it "
                         "closes at %s. Run orb again after %s."
-                        % (clock_label(cutoff), or_minutes, clock_label(range_end), clock_label(first_close),
-                           clock_label(first_close)))
+                        % (clock_label(cutoff), M["tz"], or_minutes, clock_label(M["open"]).replace(" AM", ""),
+                           clock_label(range_end), clock_label(first_close), clock_label(first_close)))
     if until is not None and cutoff.time() > until:
-        raise ScanError("It is %s ET, after %s, your last time for new entries (no_entries_after): an "
-                        "opening-range breakout found now is expired. Run orb tomorrow after %s, or replay "
-                        "today with --at 10:15." % (clock_label(cutoff), until.strftime("%H:%M"),
-                                                      clock_label(first_close)))
+        raise ScanError("It is %s %s, after %s, your last time for new entries (no_entries_after): an "
+                        "opening-range breakout found now is expired. Run orb on the next trading day after "
+                        "%s, or replay today with --at %s." % (clock_label(cutoff), M["tz"], until.strftime("%H:%M"),
+                                                               clock_label(first_close),
+                                                               (slot(day, (or_minutes + 30) // BAR_MIN)).strftime("%H:%M")))
     return day, cutoff
 
 
@@ -776,12 +949,14 @@ def read_symbols(a, offline_syms=None):
     elif offline_syms is not None and not a.universe:
         syms = sorted(offline_syms)  # offline: every chart in the file, unless a list was given
     else:
-        path = a.universe or DEFAULT_UNIVERSE
+        path = a.universe or M["universe"]
         if not os.path.exists(path):
-            raise ScanError("no %s yet: run `scan.py universe` first, or pass --symbols" % path)
+            hint = " --market asx" if M["key"] == "asx" else ""
+            raise ScanError("no %s yet: run `scan.py universe%s` first, or pass --symbols" % (path, hint))
         syms = symbols_from_file(path)
     out = []
     for s in syms:
+        s = strip_suffix(s)
         if s not in out:
             out.append(s)
     if a.limit:
@@ -832,13 +1007,59 @@ def write_json(path, doc):
 
 
 def money(x):
-    return "${:,.2f}".format(x)
+    return M["cur"] + "{:,.2f}".format(x)
 
 
 # ---------------------------------------------------------------- commands
 
-def cmd_universe(a):
+def cmd_universe_asx(a):
+    """ASX's listed companies CSV -> trader/universe-asx.txt."""
     t0 = time.time()
+    out = a.out or M["universe"]
+    if a.offline:
+        p = os.path.join(a.offline, "ASXListedCompanies.csv") if os.path.isdir(a.offline) else a.offline
+        if not os.path.exists(p):
+            raise ScanError("no ASX list at %s (download ASXListedCompanies.csv from asx.com.au)" % p)
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    else:
+        try:
+            text = http_get(ASX_LIST_URL, timeout=60)
+        except urllib.error.HTTPError as e:
+            raise ScanError("asx.com.au answered HTTP %d for the listed companies file" % e.code)
+        except (urllib.error.URLError, OSError) as e:
+            raise ScanError("could not reach asx.com.au (%s). Download %s in a browser and run "
+                            "`scan.py universe --market asx --offline ASXListedCompanies.csv`, or scan a list "
+                            "with --watchlist %s" % (getattr(e, "reason", e), ASX_LIST_URL, STARTER_ASX))
+    kept, counts, as_at = build_asx_universe(text)
+    if not a.no_write:
+        d = os.path.dirname(out)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
+            for sym, name in kept:
+                fh.write("%s|%s\n" % (sym, name))
+    dropped = {k: v for k, v in counts.items() if k not in ("keep", "rows")}
+    if a.json:
+        print(json.dumps({"market": "asx", "count": len(kept), "rows": counts.get("rows", 0), "as_at": as_at,
+                          "dropped": dropped, "out": None if a.no_write else out,
+                          "seconds": round(time.time() - t0, 1)}, indent=2))
+    else:
+        print("ASX listed companies%s: %s rows." % ((" as at %s" % as_at) if as_at else "",
+                                                   "{:,}".format(counts.get("rows", 0))))
+        print("Kept %s ASX codes (companies and trusts; ETFs are not in this file)." % "{:,}".format(len(kept)))
+        if dropped:
+            print("Dropped: " + ", ".join("%s %s" % ("{:,}".format(v), k) for k, v in dropped.items()) + ".")
+        if not a.no_write:
+            print("Wrote %s (one CODE|Name a line; Yahoo adds .AX)." % out)
+    return 0 if kept else 1
+
+
+def cmd_universe(a):
+    if M["key"] == "asx":
+        return cmd_universe_asx(a)
+    t0 = time.time()
+    a.out = a.out or DEFAULT_UNIVERSE
     texts = {}
     for k, fname in enumerate(NASDAQ_FILES):
         if a.offline:
@@ -895,8 +1116,10 @@ def cmd_daily(a):
     hits, counts, last_date = scan_daily(data, symbols, now, a.min_price, a.min_volume)
     nfailed = len(symbols) - counts["fetched"]
     as_of = ("%s close" % last_date.isoformat()) if last_date else None
+    for h in hits:
+        h["symbol"] = display_symbol(h["symbol"])
     doc = {"created_by": "trader-scanner", "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "mode": "daily",
-           "as_of": as_of, "universe": len(symbols), "scanned": counts["scanned"], "failed": nfailed,
+           "market": M["key"], "timezone": M["city"], "currency": M["cur"], "as_of": as_of, "universe": len(symbols), "scanned": counts["scanned"], "failed": nfailed,
            "source": "yahoo", "filters": {"min_price": a.min_price, "min_volume": a.min_volume},
            "note": NOTE, "hits": hits}
     if a.offline:
@@ -907,10 +1130,10 @@ def cmd_daily(a):
         print(json.dumps(dict(doc, counts=counts, seconds=round(time.time() - t0, 1)), indent=2))
         return 0 if hits else 1
     local = to_eastern(now)
-    print("Daily scan, %s ET, closes through %s (Yahoo spark, daily closes only)." % (
-        local.strftime("%a %Y-%m-%d %H:%M"), last_date.isoformat() if last_date else "nothing"))
-    print("Fetched %s of %s charts%s. %s passed the liquidity filter ($%s+ and %s+ shares)%s; "
-          "%s scanned." % ("{:,}".format(counts["fetched"]), "{:,}".format(len(symbols)),
+    print("%sDaily scan, %s %s, closes through %s (Yahoo spark, daily closes only)." % (
+        "ASX " if M["key"] == "asx" else "", local.strftime("%a %Y-%m-%d %H:%M"), M["tz"], last_date.isoformat() if last_date else "nothing"))
+    print(("Fetched %s of %s charts%s. %s passed the liquidity filter (" + M["cur"] + "%s+ and %s+ shares)%s; "
+           "%s scanned.") % ("{:,}".format(counts["fetched"]), "{:,}".format(len(symbols)),
                            (" (%s failed or had no data)" % "{:,}".format(nfailed)) if nfailed else "",
                            "{:,}".format(counts["fetched"] - counts["illiquid"]), _n(a.min_price),
                            "{:,}".format(a.min_volume),
@@ -924,7 +1147,7 @@ def cmd_daily(a):
     else:
         print("No setups.")
     for h in hits[:a.show]:
-        print("  %-6s %10s  RSI %5.1f  %s" % (h["symbol"], money(h["price"]), h["rsi"],
+        print("  %-6s %10s  RSI %5.1f  %s" % (strip_suffix(h["symbol"]), money(h["price"]), h["rsi"],
                                               ", ".join(LABEL[t] for t in h["setups"])))
     if len(hits) > a.show:
         print("  ... and %d more in the watchlist (--show N for more)." % (len(hits) - a.show))
@@ -944,7 +1167,8 @@ def cmd_orb(a):
     now = parse_now(a.now)
     at = parse_hhmm(a.at) if a.at else None
     cfg = read_config(a.config)
-    until = parse_hhmm(a.until or cfg.get("no_entries_after") or "15:30", "--until")
+    mcfg = cfg.get(M["key"]) if isinstance(cfg.get(M["key"]), dict) else {}
+    until = parse_hhmm(a.until or mcfg.get("no_entries_after") or cfg.get("no_entries_after") or "15:30", "--until")
     data = failed = None
     explicit_day = None
     offline_syms = None
@@ -982,9 +1206,11 @@ def cmd_orb(a):
     failed = dict(failed or {})
     failed.update(failed2)
     nfailed = len([s for s in symbols if s in failed])
-    as_of = "%s %s ET" % (day.isoformat(), cutoff.strftime("%H:%M"))
+    as_of = "%s %s %s" % (day.isoformat(), cutoff.strftime("%H:%M"), M["tz"])
+    for h in hits:
+        h["symbol"] = display_symbol(h["symbol"])
     doc = {"created_by": "trader-scanner", "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "mode": "orb",
-           "as_of": as_of, "universe": len(symbols), "scanned": counts["scanned"], "failed": nfailed,
+           "market": M["key"], "timezone": M["city"], "currency": M["cur"], "as_of": as_of, "universe": len(symbols), "scanned": counts["scanned"], "failed": nfailed,
            "unconfirmed": counts["unconfirmed"], "source": "yahoo", "or_minutes": a.or_minutes,
            "interval": "%dm" % BAR_MIN,
            "filters": {"min_price": a.min_price, "min_volume": a.min_volume}, "note": NOTE, "hits": hits}
@@ -995,8 +1221,12 @@ def cmd_orb(a):
     if a.json:
         print(json.dumps(dict(doc, counts=counts, seconds=round(time.time() - t0, 1)), indent=2))
         return 0 if hits else 1
-    print("Opening-range breakout scan, %s %s ET: %d-minute range (9:30 to %s), 5-minute bars, Yahoo."
-          % (day_label(day), clock_label(cutoff), a.or_minutes, clock_label(slot(day, a.or_minutes // BAR_MIN))))
+    print("%sOpening-range breakout scan, %s %s %s: %d-minute range (%s to %s), 5-minute bars, Yahoo."
+          % ("ASX " if M["key"] == "asx" else "", day_label(day), clock_label(cutoff), M["tz"], a.or_minutes,
+             clock_label(M["open"]).replace(" AM", ""), clock_label(slot(day, a.or_minutes // BAR_MIN))))
+    if M["max_missing"]:
+        print("Gaps: up to %d missing 5-minute bars a chart are allowed (Yahoo's free %s bars have gaps); "
+              "the opening range may miss one." % (M["max_missing"], M["exchange"]))
     print("Fetched %s of %s charts%s; %s usable%s; %s candidates, %s confirmed with real highs and lows."
           % ("{:,}".format(counts["fetched"]), "{:,}".format(len(symbols)),
              (" (%s failed or had no data)" % "{:,}".format(nfailed)) if nfailed else "",
@@ -1012,7 +1242,7 @@ def cmd_orb(a):
                  else "{:,}".format(counts["scanned"]), clock_label(cutoff)))
         for h in hits[:a.show]:
             print("  %8s  %-6s %10s  range %s to %s  %+.2f%% over" % (
-                h["at"], h["symbol"], money(h["price"]), _p(h["or_low"]), _p(h["or_high"]), h["pct_over"]))
+                h["at"], strip_suffix(h["symbol"]), money(h["price"]), _p(h["or_low"]), _p(h["or_high"]), h["pct_over"]))
         if len(hits) > a.show:
             print("  ... and %d more in the watchlist (--show N for more)." % (len(hits) - a.show))
     else:
@@ -1031,23 +1261,33 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Chart Scanner (trader-scanner): daily setups and opening-range breakouts.")
     sub = ap.add_subparsers(dest="cmd")
 
-    p = sub.add_parser("universe", help="download Nasdaq Trader's lists -> trader/universe.txt")
-    p.add_argument("--out", default=DEFAULT_UNIVERSE)
-    p.add_argument("--offline", metavar="DIR", help="a folder with nasdaqlisted.txt and otherlisted.txt")
+    def market(p):
+        p.add_argument("--market", choices=sorted(MARKETS),
+                       help='us (NYSE / Nasdaq, New York time) or asx (Sydney time, .AX tickers); '
+                            'default: "market" in trader/config.json, else us')
+
+    p = sub.add_parser("universe", help="download the symbol list -> trader/universe.txt (asx: universe-asx.txt)")
+    market(p)
+    p.add_argument("--out", help="default trader/universe.txt (us) or trader/universe-asx.txt (asx)")
+    p.add_argument("--offline", metavar="PATH", help="us: a folder with nasdaqlisted.txt and otherlisted.txt; "
+                                                     "asx: ASXListedCompanies.csv or its folder")
     p.add_argument("--no-write", action="store_true")
     p.add_argument("--pause", type=float, default=PAUSE)
     p.add_argument("--json", action="store_true")
 
     def common(p, min_price, min_volume):
+        market(p)
         g = p.add_mutually_exclusive_group()
         g.add_argument("--symbols", help="comma-separated tickers instead of the universe")
         g.add_argument("--watchlist", metavar="FILE", help="a watchlist.json (hits) or a text file of tickers")
-        p.add_argument("--universe", help="symbol list, one SYMBOL|Name a line (default %s)" % DEFAULT_UNIVERSE)
+        p.add_argument("--universe", help="symbol list, one SYMBOL|Name a line (default %s, or "
+                                          "trader/universe-asx.txt with --market asx)" % DEFAULT_UNIVERSE)
         p.add_argument("--limit", type=int, help="scan only the first N symbols")
-        p.add_argument("--min-price", type=float, default=min_price)
-        p.add_argument("--min-volume", type=int, default=min_volume)
+        p.add_argument("--min-price", type=float, help="default %s (asx: 1)" % min_price)
+        p.add_argument("--min-volume", type=int, help="default {:,} (asx: {})".format(
+            min_volume, "500,000" if min_volume else "0"))
         p.add_argument("--offline", metavar="PATH", help="fixture folder or file instead of the network")
-        p.add_argument("--now", help='pretend it is this time ("2026-10-19 10:15" New York, or ...Z)')
+        p.add_argument("--now", help='pretend it is this time ("2026-10-19 10:15" market time, or ...Z)')
         p.add_argument("--out", default="trader/watchlist.json")
         p.add_argument("--no-write", action="store_true")
         p.add_argument("--pause", type=float, default=PAUSE, help="seconds between requests (%.1f)" % PAUSE)
@@ -1062,7 +1302,9 @@ def main(argv=None):
     p.add_argument("--or-minutes", type=int, default=15)
     p.add_argument("--max-confirm", type=int, default=MAX_CONFIRM,
                    help="v8 charts to fetch in stage 2, most traded first (%d; 0 = all)" % MAX_CONFIRM)
-    p.add_argument("--at", help="cut the clock at this New York time, HH:MM")
+    p.add_argument("--at", help="cut the clock at this market time (New York or Sydney), HH:MM")
+    p.add_argument("--max-missing", type=int,
+                   help="5-minute bars a chart may miss and still count (us 0, asx %d)" % MARKETS["asx"]["max_missing"])
     p.add_argument("--until", help="no new entries after HH:MM (default: config no_entries_after, 15:30)")
     p.add_argument("--config", default="trader/config.json")
     a = ap.parse_args(argv)
@@ -1070,6 +1312,16 @@ def main(argv=None):
         ap.print_help()
         return 1
     try:
+        cfg = read_config(getattr(a, "config", None) or "trader/config.json")
+        set_market(a.market or str(cfg.get("market") or "us").lower())
+        if a.cmd == "daily":
+            a.min_price = M["daily_min_price"] if a.min_price is None else a.min_price
+            a.min_volume = M["daily_min_volume"] if a.min_volume is None else a.min_volume
+        elif a.cmd == "orb":
+            a.min_price = M["orb_min_price"] if a.min_price is None else a.min_price
+            a.min_volume = 0 if a.min_volume is None else a.min_volume
+            if a.max_missing is not None:
+                M["max_missing"] = max(0, a.max_missing)
         return {"universe": cmd_universe, "daily": cmd_daily, "orb": cmd_orb}[a.cmd](a)
     except ScanError as e:
         print("scan.py: %s" % e, file=sys.stderr)

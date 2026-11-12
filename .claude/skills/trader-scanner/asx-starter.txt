@@ -1,0 +1,56 @@
+# A hand-picked starter list of large, busy ASX names for `scan.py --market asx --watchlist asx-starter.txt`.
+# It is NOT the ASX 200 or any official index. Each code returned Yahoo data (code.AX) on 2026-11-12.
+# Prefer the full list: `scan.py universe --market asx` (ASX's listed companies file).
+BHP|BHP Group
+CBA|Commonwealth Bank of Australia
+CSL|CSL
+NAB|National Australia Bank
+WBC|Westpac Banking Corporation
+ANZ|ANZ Group Holdings
+MQG|Macquarie Group
+WES|Wesfarmers
+FMG|Fortescue
+RIO|Rio Tinto
+WDS|Woodside Energy Group
+TLS|Telstra Group
+GMG|Goodman Group
+WOW|Woolworths Group
+TCL|Transurban Group
+ALL|Aristocrat Leisure
+STO|Santos
+XRO|Xero
+COL|Coles Group
+QBE|QBE Insurance Group
+REA|REA Group
+PLS|Pilbara Minerals
+MIN|Mineral Resources
+LTR|Liontown Resources
+JHX|James Hardie Industries
+NXT|NextDC
+WTC|WiseTech Global
+PME|Pro Medicus
+CPU|Computershare
+SUN|Suncorp Group
+IAG|Insurance Australia Group
+S32|South32
+ORG|Origin Energy
+TWE|Treasury Wine Estates
+QAN|Qantas Airways
+LYC|Lynas Rare Earths
+BXB|Brambles
+RMD|ResMed
+SHL|Sonic Healthcare
+ZIP|Zip Co
+NST|Northern Star Resources
+EVN|Evolution Mining
+NEM|Newmont Corporation (CDIs)
+PRU|Perseus Mining
+RMS|Ramelius Resources
+GMD|Genesis Minerals
+RRL|Regis Resources
+CMM|Capricorn Metals
+WAF|West African Resources
+PDI|Predictive Discovery
+VAU|Vault Minerals
+GOLD|Global X Physical Gold (ETF)
+QAU|BetaShares Gold Bullion ETF (A$ hedged)

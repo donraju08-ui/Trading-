@@ -8,11 +8,13 @@ description: >-
   flag, reclaimed the 20-day average, oversold, oversold bounce) and an
   intraday opening-range breakout scan on 5-minute bars, then writes
   trader/watchlist.json for trader-news and trader-entry. Free Yahoo data,
-  bar by bar. Use when the user says "scan the market", "find me setups",
+  bar by bar. Also scans the Australian market (ASX) with --market asx:
+  Sydney time, ASX hours and holidays, .AX tickers, A$ prices. Use when the
+  user says "scan the market", "find me setups",
   "what is breaking out", "opening range breakouts", "scan for bull flags",
   "oversold stocks", "pre-market scan", "build my watchlist", "what should I
-  look at today", or at the start of a trading day before /trader-news.
-argument-hint: "[universe | daily | orb] [--at HH:MM]"
+  look at today", "scan the ASX", "Australian stocks", or at the start of a trading day before /trader-news.
+argument-hint: "[universe | daily | orb] [--market us|asx] [--at HH:MM]"
 ---
 
 # trader-scanner
@@ -47,8 +49,52 @@ reason is one plain line).
 | file | what |
 | --- | --- |
 | `trader/universe.txt` | written by `universe`: one `SYMBOL\|Name` a line, read by `daily` and `orb` |
+| `trader/universe-asx.txt` | the same for `--market asx`: one `CODE\|Name` a line |
 | `trader/watchlist.json` | written by `daily` and `orb`: `mode`, `as_of`, `universe`, `scanned`, `failed`, `hits[]`. trader-news and trader-entry read `hits[].symbol` |
-| `trader/config.json` | read by `orb`: `no_entries_after` (default 15:30) |
+| `trader/config.json` | `market` (`us` or `asx`, default us); read by `orb`: `no_entries_after` (default 15:30, market time; `"asx": {"no_entries_after": "15:30"}` sets it for the ASX alone) |
+
+## The Australian market (ASX)
+
+Add `--market asx` to any command, or put `"market": "asx"` in
+`trader/config.json` to make it the default (`--market us` switches back).
+
+```bash
+python3 "/workspace/Trading-/.claude/skills/trader-scanner/scan.py" universe --market asx    # -> trader/universe-asx.txt
+python3 "/workspace/Trading-/.claude/skills/trader-scanner/scan.py" daily --market asx       # after 4:15 PM or before 10:00 AM Sydney
+python3 "/workspace/Trading-/.claude/skills/trader-scanner/scan.py" daily --market asx --watchlist "/workspace/Trading-/.claude/skills/trader-scanner/asx-starter.txt"
+python3 "/workspace/Trading-/.claude/skills/trader-scanner/scan.py" orb --market asx         # after 10:20 AM Sydney
+```
+
+What changes with `--market asx`:
+
+| | US (default) | ASX |
+| --- | --- | --- |
+| clock | New York (ET) | Sydney (AEST +10 / AEDT +11, worked out from the date) |
+| session | 9:30 AM to 4:00 PM | 10:00 AM to 4:00 PM, closing auction about 4:10 PM |
+| early close | 1:00 PM | 2:00 PM (closing auction about 2:10 PM): Christmas Eve and New Year's Eve |
+| holidays | NYSE 2026 and 2027 | ASX 2026 and 2027: New Year, Australia Day, Good Friday, Easter Monday, King's Birthday, Christmas, Boxing Day (observed dates) |
+| daily bar final | 4:00 PM | 4:15 PM (after the closing auction) |
+| tickers | TSLA, BRK.B | BHP or BHP.AX in, Yahoo `BHP.AX`, written to watchlist.json as `BHP.AX` |
+| floors (daily) | $5 and 1,000,000 shares | A$1 and 500,000 shares |
+| missing 5-minute bars | none allowed | up to 8 (`--max-missing`), at most one inside the opening range |
+| universe | Nasdaq Trader symbol directories | ASX's `ASXListedCompanies.csv` (companies and trusts, no ETFs) |
+
+Things to say about the ASX:
+
+- The opening auction staggers the open by ticker, from 10:00 to about 10:09
+  AM, so the first 5-minute bar of a late-opening ticker is thin. A 15-minute
+  range (10:00 to 10:15) still covers it; `--or-minutes 20` is gentler.
+- Yahoo's free ASX 5-minute bars have gaps even on busy names (on 2026-11-12
+  PLS was missing 7 of 38 bars by 1:05 PM), so a gap is not read as a halt.
+  Say that a chart with gaps was used.
+- Yahoo's ASX quotes are delayed about 20 minutes.
+- If asx.com.au is not reachable (it was blocked by this cloud session's
+  network on 2026-11-12), download `ASXListedCompanies.csv` in a browser and
+  pass it with `--offline`, or scan `asx-starter.txt`: about 50 large, busy
+  names hand-picked on 2026-11-12. It is not the ASX 200 or any index.
+- The rest of the pack (news, entry, exit, alerts, risk, broker) still runs
+  on New York time, and Alpaca does not trade the ASX. An ASX hit from this
+  scanner is a chart to look at; its timing and orders are not covered yet.
 
 ## The universe
 
